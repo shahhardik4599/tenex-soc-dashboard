@@ -74,9 +74,9 @@ export default function SOCDashboard() {
     return logs.filter(log => {
       if (activeFilter === 'all') return true;
       if (activeFilter === 'anomalies') return log.is_anomaly;
-      if (activeFilter === 'brute_force') return log.anomaly_reason?.includes('Brute Force');
-      if (activeFilter === 'sensitive') return log.anomaly_reason?.includes('sensitive endpoint');
-      if (activeFilter === 'ml') return log.anomaly_reason?.includes('ML Model');
+      if (activeFilter === 'brute_force') return log.category === 'Brute Force';
+      if (activeFilter === 'sensitive') return log.category === 'Probing';
+      if (activeFilter === 'ml') return log.category === 'ML Behavioral';
       return true;
     });
   }, [logs, activeFilter]);

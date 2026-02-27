@@ -21,3 +21,4 @@ class LogEntry(Base):
     is_anomaly = Column(Boolean, default=False)
     anomaly_reason = Column(String, nullable=True) 
     confidence_score = Column(Float, nullable=True)
+    category = Column(String, default="Normal")
