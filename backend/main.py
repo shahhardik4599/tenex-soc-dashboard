@@ -74,17 +74,22 @@ async def upload_log_file(
     parsed_data = detection.run_detection_pipeline(parsed_data)
     current_batch_id = str(uuid.uuid4())
 
+    # --- UPDATED: Filter and save ONLY anomalies ---
     db_logs = []
     for log in parsed_data:
-        db_log = models.LogEntry(**log, batch_id=current_batch_id)
-        db_logs.append(db_log)
+        if log.get('is_anomaly') is True:
+            db_log = models.LogEntry(**log, batch_id=current_batch_id)
+            db_logs.append(db_log)
         
-    db.add_all(db_logs)
-    db.commit()
+    # Only interact with the DB if we found anomalies
+    if db_logs:
+        db.add_all(db_logs)
+        db.commit()
 
     return {
         "message": "File uploaded and parsed successfully",
         "batch_id": current_batch_id,
-        "lines_processed": len(db_logs),
-        "data": parsed_data
+        "lines_processed": len(parsed_data),     # Total lines in the file
+        "anomalies_saved": len(db_logs),         # Only the threats stored in DB
+        "data": parsed_data                      # Return all data so UI chart still works
     }

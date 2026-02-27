@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo } from 'react';
 import axios from 'axios';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { UploadCloud, ShieldCheck, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // Component Imports
@@ -70,26 +69,11 @@ export default function SOCDashboard() {
     });
   }, [logs, activeFilter]);
 
-  const totalPages = Math.ceil(filteredLogs.length / rowsPerPage);
+  const totalPages = Math.ceil(filteredLogs.length / rowsPerPage) || 1;
   const paginatedLogs = filteredLogs.slice(
     (currentPage - 1) * rowsPerPage,
     currentPage * rowsPerPage
   );
-
-  // --- Timeline Chart Data Prep ---
-  const chartData = useMemo(() => {
-    return logs.reduce((acc: any[], log: any) => {
-      const time = new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const existing = acc.find(item => item.time === time);
-      if (existing) {
-        existing.events += 1;
-        if (log.is_anomaly) existing.anomalies += 1;
-      } else {
-        acc.push({ time, events: 1, anomalies: log.is_anomaly ? 1 : 0 });
-      }
-      return acc;
-    }, []).reverse();
-  }, [logs]);
 
   // --- Auth Guard ---
   if (!isLoggedIn) {
@@ -120,42 +104,11 @@ export default function SOCDashboard() {
         {loading ? (
           <CyberLoader />
         ) : logs.length > 0 ? (
-          <>
-            {/* Timeline Chart - Re-integrated */}
-            {/* <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
-              <h2 className="text-lg font-semibold text-white mb-4">Event Timeline (Velocity & Anomalies)</h2>
-              <div className="h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="time" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" />
-                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#475569' }} />
-                    <Line type="monotone" dataKey="events" stroke="#10b981" strokeWidth={2} name="Total Events" dot={false} />
-                    <Line type="monotone" dataKey="anomalies" stroke="#ef4444" strokeWidth={2} name="Anomalies" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div> */}
-              {logs.length > 0 && (
-                <>
-                  {/* PASS FILTERED LOGS HERE INSTEAD OF ALL LOGS */}
-                  <ThreatChart logs={filteredLogs} />
+          <div className="space-y-8">
+            {/* 1. Interactive Chart (Synchronized with Filters) */}
+            <ThreatChart logs={filteredLogs} />
 
-                  <StatsFilters
-                    batchId={batchId}
-                    activeFilter={activeFilter}
-                    setFilter={(f) => { setFilter(f); setCurrentPage(1); }}
-                    totalLogs={logs.length}
-                  />
-
-                  <div className="space-y-4">
-                    <LogTable logs={paginatedLogs} />
-                    {/* ... pagination controls ... */}
-                  </div>
-                </>
-              )}
-
+            {/* 2. Global Filters & Batch Information */}
             <StatsFilters
               batchId={batchId}
               activeFilter={activeFilter}
@@ -163,24 +116,40 @@ export default function SOCDashboard() {
               totalLogs={logs.length}
             />
 
+            {/* 3. Paginated Data Table */}
             <div className="space-y-4">
               <LogTable logs={paginatedLogs} />
 
               {/* Pagination Controls */}
-              <div className="flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700">
+              <div className="flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-md">
                 <div className="text-sm text-slate-400">
                   Showing <span className="text-white font-bold">{(currentPage - 1) * rowsPerPage + 1}</span> to <span className="text-white font-bold">{Math.min(currentPage * rowsPerPage, filteredLogs.length)}</span> of <span className="text-white font-bold">{filteredLogs.length}</span> events
                 </div>
                 <div className="flex space-x-2">
-                  <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} className="p-2 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-30"><ChevronLeft /></button>
-                  <div className="px-4 py-2 text-sm font-bold text-white bg-slate-900 rounded border border-slate-700">Page {currentPage} of {totalPages}</div>
-                  <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="p-2 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-30"><ChevronRight /></button>
+                  <button
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(p => p - 1)}
+                    className="p-2 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-30 transition-colors"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <div className="px-4 py-2 text-sm font-bold text-white bg-slate-900 rounded border border-slate-700 min-w-[120px] text-center">
+                    Page {currentPage} of {totalPages}
+                  </div>
+                  <button
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(p => p + 1)}
+                    className="p-2 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-30 transition-colors"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
                 </div>
               </div>
             </div>
-          </>
+          </div>
         ) : (
-          <div className="text-center py-20 bg-slate-800/50 rounded-xl border-2 border-dashed border-slate-700">
+          /* Empty State */
+          <div className="text-center py-20 bg-slate-800/50 rounded-xl border-2 border-dashed border-slate-700 shadow-inner">
             <UploadCloud className="mx-auto w-12 h-12 text-slate-600 mb-4" />
             <p className="text-slate-500">Awaiting Log Ingestion. Upload a file to trigger AI analysis.</p>
           </div>

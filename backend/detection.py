@@ -28,6 +28,7 @@ def run_detection_pipeline(parsed_logs):
     df['confidence_score'] = 0.0
     df['anomaly_reason'] = ""
     df['category'] = "Normal" # DETERMINISTIC CATEGORY
+    df['signature'] = "" # Temporary column for tracking
 
     # LAYER 1: Rules
     stix_mask = df['source_ip'].isin(KNOWN_BAD_IPS)
@@ -58,13 +59,77 @@ def run_detection_pipeline(parsed_logs):
         df.loc[ml_mask, 'confidence_score'] = df.loc[ml_mask, 'raw_score'].apply(lambda x: round(min(99.9, 75.0 + (abs(x) * 100)), 1))
         df = df.drop(columns=['ml_prediction', 'raw_score'])
 
-    # LAYER 3: LLM Enrichment
-    for index, row in df[df['is_anomaly']].iterrows():
-        prompt = f"You are a Senior SOC Analyst. Explain this {row['category']} attack: {row['http_method']} {row['endpoint']}, Status {row['status_code']}, Size {row['response_size']} bytes. Reason: {row['anomaly_reason']}. Write 2 concise sentences."
-        try:
-            chat = client.chat.completions.create(messages=[{"role": "user", "content": prompt}], model="llama-3.1-8b-instant")
-            df.at[index, 'anomaly_reason'] = f"🤖 AI Analyst: {chat.choices[0].message.content.strip()}"
-        except:
-            continue
+    # ==========================================
+    # LAYER 3: Signature Aggregation AI Enrichment
+    # ==========================================
+    anomalies_df = df[df['is_anomaly']].copy()
+    
+    if not anomalies_df.empty:
+        # 1. Create a unique signature for each attack vector locally
+        df.loc[df['is_anomaly'], 'signature'] = anomalies_df['category'] + "|" + anomalies_df['source_ip'] + "|" + anomalies_df['http_method'] + "|" + anomalies_df['endpoint']
+        
+        # Refresh the working copy with the new signature column
+        anomalies_df = df[df['is_anomaly']]
+        grouped = anomalies_df.groupby('signature')
+        
+        unique_cases = []
+        sig_mapping = {}
+        
+        # 2. Extract strictly the unique signatures and omit PII
+        for idx, (sig, group) in enumerate(grouped):
+            count = len(group)
+            sample_row = group.iloc[0]
+            
+            unique_cases.append({
+                "id": str(idx),
+                "type": sample_row['category'],
+                "target": f"{sample_row['http_method']} {sample_row['endpoint']}",
+                "status_code": int(sample_row['status_code']),
+                "volume": f"{count} attempts",
+                "rule_reason": sample_row['anomaly_reason']
+            })
+            sig_mapping[str(idx)] = sig
 
-    return df.drop(columns=['minute']).to_dict(orient='records')
+        # 3. Process unique cases in chunks (just in case there are > 15 UNIQUE attacks)
+        chunk_size = 15
+        all_explanations = {}
+
+        for i in range(0, len(unique_cases), chunk_size):
+            chunk = unique_cases[i:i + chunk_size]
+            
+            prompt = (
+                "You are a Senior SOC Analyst. Analyze this batch of unique security threat signatures. "
+                "For each ID, provide a 1-sentence tactical explanation of the risk, considering the volume of attempts. "
+                "Return the result strictly as a JSON object where keys are the IDs and values are the explanations. "
+                f"Data: {json.dumps(chunk)}"
+            )
+
+            try:
+                chat = client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model="llama-3.1-8b-instant",
+                    response_format={"type": "json_object"}
+                )
+                
+                chunk_explanations = json.loads(chat.choices[0].message.content)
+                all_explanations.update(chunk_explanations)
+                
+            except Exception as e:
+                print(f"AI Enrichment Error on chunk {i}: {e}")
+                for item in chunk:
+                    all_explanations[item['id']] = item['rule_reason'] + " (AI enrichment bypass)"
+
+        # 4. Broadcast explanations back to ALL matching rows in the master DataFrame
+        for idx_str, explanation in all_explanations.items():
+            if idx_str in sig_mapping:
+                sig = sig_mapping[idx_str]
+                match_mask = df['signature'] == sig
+                df.loc[match_mask, 'anomaly_reason'] = f"🤖 AI Analyst: {explanation}"
+
+    # Clean up temporary columns before returning to main.py
+    columns_to_drop = ['minute', 'signature']
+    for col in columns_to_drop:
+        if col in df.columns:
+            df = df.drop(columns=[col])
+
+    return df.to_dict(orient='records')
