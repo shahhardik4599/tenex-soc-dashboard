@@ -43,7 +43,7 @@ def run_detection_pipeline(parsed_logs):
     bf_mask = df['source_ip'].isin(brute_ips) & ~df['is_anomaly']
     df.loc[bf_mask, ['is_anomaly', 'category', 'confidence_score', 'anomaly_reason']] = [True, "Brute Force", 99.0, "Velocity Rule: Possible Brute Force Attack."]
 
-    sensitive_endpoints = ['/admin', '/env', '/config', '/.git']
+    sensitive_endpoints = ['/admin', '/.env', '/config', '/.git']
     sensitive_mask = df['endpoint'].apply(lambda x: any(sub in str(x) for sub in sensitive_endpoints)) & (df['status_code'] >= 400) & ~df['is_anomaly']
     df.loc[sensitive_mask, ['is_anomaly', 'category', 'confidence_score', 'anomaly_reason']] = [True, "Probing", 95.0, "Rule: Unauthorized access attempt to sensitive endpoint."]
 
