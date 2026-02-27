@@ -1,8 +1,10 @@
 import React, { useMemo } from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function ThreatChart({ logs }: { logs: any[] }) {
     const chartData = useMemo(() => {
+        if (!logs || logs.length === 0) return [];
+
         const grouped = logs.reduce((acc: any, log: any) => {
             const time = new Date(log.timestamp);
             // Round to nearest minute for grouping
@@ -53,11 +55,14 @@ export default function ThreatChart({ logs }: { logs: any[] }) {
                         <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} />
                         <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '8px', fontSize: '12px' }} />
 
+                        {/* FIX: stackId is removed so they don't stack to match ML point.
+                            fillOpacity={0.6} added so you can see them overlapping cleanly.
+                        */}
                         <Area type="monotone" dataKey="total" stroke="#10b981" fillOpacity={1} fill="url(#colorTotal)" name="Total Traffic" dot={{ r: 4, fill: '#10b981' }} />
-                        <Area type="monotone" stackId="1" dataKey="intel" stroke="#ef4444" fill="#ef4444" name="Threat Intel" dot={{ r: 4 }} />
-                        <Area type="monotone" stackId="1" dataKey="ml" stroke="#f43f5e" fill="#f43f5e" name="ML Behavioral" dot={{ r: 4 }} />
-                        <Area type="monotone" stackId="1" dataKey="bruteForce" stroke="#f59e0b" fill="#f59e0b" name="Brute Force" dot={{ r: 4 }} />
-                        <Area type="monotone" stackId="1" dataKey="probing" stroke="#8b5cf6" fill="#8b5cf6" name="Probing" dot={{ r: 4 }} />
+                        <Area type="monotone" dataKey="intel" stroke="#ef4444" fill="#ef4444" fillOpacity={0.6} name="Threat Intel" dot={{ r: 3 }} />
+                        <Area type="monotone" dataKey="ml" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.6} name="ML Behavioral" dot={{ r: 3 }} />
+                        <Area type="monotone" dataKey="bruteForce" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.6} name="Brute Force" dot={{ r: 3 }} />
+                        <Area type="monotone" dataKey="probing" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.6} name="Probing" dot={{ r: 3 }} />
                     </AreaChart>
                 </ResponsiveContainer>
             </div>

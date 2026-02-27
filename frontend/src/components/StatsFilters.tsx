@@ -8,9 +8,11 @@ interface StatsFiltersProps {
 }
 
 export default function StatsFilters({ batchId, activeFilter, setFilter, totalLogs }: StatsFiltersProps) {
+    // --- UPDATED: Added Threat Intel to the array ---
     const filterOptions = [
         { id: 'all', label: 'All Traffic' },
         { id: 'anomalies', label: 'Anomalies' },
+        { id: 'threat_intel', label: 'Threat Intel' },
         { id: 'brute_force', label: 'Brute Force' },
         { id: 'sensitive', label: 'Sensitive Probing' },
         { id: 'ml', label: 'ML Behavioral' },
@@ -34,8 +36,8 @@ export default function StatsFilters({ batchId, activeFilter, setFilter, totalLo
                         key={opt.id}
                         onClick={() => setFilter(opt.id)}
                         className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap border ${activeFilter === opt.id
-                                ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-900/20'
-                                : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'
+                            ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-900/20'
+                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'
                             }`}
                     >
                         {opt.label}

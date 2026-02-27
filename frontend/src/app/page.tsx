@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import axios from 'axios';
-import { UploadCloud, ShieldCheck, ChevronLeft, ChevronRight } from 'lucide-react';
+import { UploadCloud, ShieldCheck, ChevronLeft, ChevronRight, History, X, LogOut } from 'lucide-react';
 
 // Component Imports
 import AuthContainer from '@/components/AuthContainer';
@@ -12,7 +12,7 @@ import CyberLoader from '@/components/Loader';
 import ThreatChart from '@/components/ThreatChart';
 
 export default function SOCDashboard() {
-  // --- State Management ---
+  // --- Core State Management ---
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [logs, setLogs] = useState<any[]>([]);
@@ -21,14 +21,74 @@ export default function SOCDashboard() {
   const [error, setError] = useState('');
   const [activeFilter, setFilter] = useState('all');
 
+  // --- History State Management ---
+  const [historyBatches, setHistoryBatches] = useState<any[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+
   // --- Pagination State ---
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 10;
 
-  // --- Handlers ---
+  // --- API Handlers & Lifecycle ---
+  useEffect(() => {
+    // Check session storage for saved credentials when the page loads
+    const saved = sessionStorage.getItem('tenex_credentials');
+    if (saved) {
+      const parsedCreds = JSON.parse(saved);
+      setCredentials(parsedCreds);
+      setIsLoggedIn(true);
+      fetchHistory(parsedCreds);
+    }
+  }, []);
+
+  const fetchHistory = async (creds: any) => {
+    try {
+      const authHeader = 'Basic ' + btoa(`${creds.username}:${creds.password}`);
+      const response = await axios.get('http://localhost:8000/batches', {
+        headers: { 'Authorization': authHeader }
+      });
+      setHistoryBatches(response.data.batches);
+    } catch (err) {
+      console.error("Failed to fetch history", err);
+    }
+  };
+
   const handleLoginSuccess = (creds: any) => {
     setCredentials(creds);
     setIsLoggedIn(true);
+    // Save to session storage: survives refresh, dies when tab closes
+    sessionStorage.setItem('tenex_credentials', JSON.stringify(creds));
+    fetchHistory(creds);
+  };
+
+  const handleLogout = () => {
+    setCredentials({ username: '', password: '' });
+    setIsLoggedIn(false);
+    setLogs([]);
+    setBatchId('');
+    setShowHistory(false);
+    sessionStorage.removeItem('tenex_credentials');
+  };
+
+  const loadHistoricalBatch = async (selectedBatchId: string) => {
+    setLoading(true);
+    setError('');
+    setShowHistory(false); // Close the sidebar
+    setCurrentPage(1);     // Reset pagination
+
+    try {
+      const authHeader = 'Basic ' + btoa(`${credentials.username}:${credentials.password}`);
+      const response = await axios.get(`http://localhost:8000/batches/${selectedBatchId}`, {
+        headers: { 'Authorization': authHeader }
+      });
+
+      setBatchId(response.data.batch_info.batch_id);
+      setLogs(response.data.data);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to load historical batch.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -36,7 +96,7 @@ export default function SOCDashboard() {
 
     setLoading(true);
     setError('');
-    setCurrentPage(1); // Reset to page 1 on new upload
+    setCurrentPage(1);
     const file = e.target.files[0];
     const formData = new FormData();
     formData.append('file', file);
@@ -49,9 +109,12 @@ export default function SOCDashboard() {
 
       setBatchId(response.data.batch_id);
       setLogs(response.data.data);
+
+      // Refresh the history list so the new upload appears in the sidebar!
+      fetchHistory(credentials);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to process logs.');
-      if (err.response?.status === 401) setIsLoggedIn(false);
+      if (err.response?.status === 401) handleLogout(); // Force logout on auth failure
     } finally {
       setLoading(false);
     }
@@ -62,6 +125,7 @@ export default function SOCDashboard() {
     return logs.filter(log => {
       if (activeFilter === 'all') return true;
       if (activeFilter === 'anomalies') return log.is_anomaly;
+      if (activeFilter === 'threat_intel') return log.category === 'Threat Intel';
       if (activeFilter === 'brute_force') return log.category === 'Brute Force';
       if (activeFilter === 'sensitive') return log.category === 'Probing';
       if (activeFilter === 'ml') return log.category === 'ML Behavioral';
@@ -81,7 +145,54 @@ export default function SOCDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-300 p-8 font-sans">
+    <div className="min-h-screen bg-slate-900 text-slate-300 p-8 font-sans relative">
+
+      {/* --- HISTORY SIDEBAR OVERLAY --- */}
+      {showHistory && (
+        <div className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm" onClick={() => setShowHistory(false)}></div>
+      )}
+      <div className={`fixed inset-y-0 right-0 w-96 bg-slate-800 border-l border-slate-700 shadow-2xl p-6 transform transition-transform duration-300 z-50 overflow-y-auto ${showHistory ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
+          <h2 className="text-xl font-bold text-white flex items-center">
+            <History className="w-5 h-5 mr-3 text-emerald-500" />
+            Upload History
+          </h2>
+          <button onClick={() => setShowHistory(false)} className="text-slate-400 hover:text-white transition-colors">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {historyBatches.length === 0 ? (
+            <div className="text-center py-10">
+              <History className="w-10 h-10 mx-auto text-slate-600 mb-3" />
+              <p className="text-slate-500 text-sm">No previous batches found.</p>
+            </div>
+          ) : (
+            historyBatches.map((batch: any) => (
+              <div
+                key={batch.batch_id}
+                onClick={() => loadHistoricalBatch(batch.batch_id)}
+                className={`bg-slate-900 p-4 rounded-xl border-2 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg ${batch.batch_id === batchId ? 'border-emerald-500 shadow-emerald-900/20' : 'border-slate-700 hover:border-slate-500'}`}
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <p className="text-emerald-400 font-bold text-sm truncate pr-2" title={batch.filename}>
+                    {batch.filename}
+                  </p>
+                  <span className="bg-red-900/30 text-red-400 border border-red-800 px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap">
+                    {batch.anomalies_count} Threats
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500 font-mono">
+                  {new Date(batch.created_at).toLocaleString()}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+      {/* --- END SIDEBAR --- */}
+
       <div className="max-w-7xl mx-auto space-y-8">
 
         {/* Header */}
@@ -90,25 +201,48 @@ export default function SOCDashboard() {
             <ShieldCheck className="text-emerald-500 w-8 h-8 mr-3" />
             <h1 className="text-2xl font-bold text-white">TENEX SOC Dashboard</h1>
           </div>
-          <div className="relative overflow-hidden inline-block">
-            <button className={`bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-6 rounded shadow-lg flex items-center transition-all ${loading ? 'opacity-50' : ''}`}>
-              <UploadCloud className="w-5 h-5 mr-2" />
-              {loading ? 'AI Engine Processing...' : 'Upload Access Log'}
+
+          <div className="flex items-center space-x-4">
+            {/* History Toggle Button */}
+            <button
+              onClick={() => setShowHistory(true)}
+              className="flex items-center px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-white transition-colors"
+            >
+              <History className="w-4 h-4 mr-2" />
+              History
             </button>
-            <input type="file" accept=".log,.txt" onChange={handleFileUpload} disabled={loading} className="absolute left-0 top-0 opacity-0 cursor-pointer h-full w-full" />
+
+            {/* Logout Button */}
+            <button
+              onClick={handleLogout}
+              className="flex items-center px-4 py-2 bg-red-900/30 hover:bg-red-900/50 border border-red-800 rounded-lg text-red-400 transition-colors"
+              title="Sign Out"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
+            </button>
+
+            {/* Upload Button */}
+            <div className="relative overflow-hidden inline-block">
+              <button className={`bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-6 rounded-lg shadow-lg flex items-center transition-all ${loading ? 'opacity-50' : ''}`}>
+                <UploadCloud className="w-5 h-5 mr-2" />
+                {loading ? 'AI Engine Processing...' : 'Upload Access Log'}
+              </button>
+              <input type="file" accept=".log,.txt" onChange={handleFileUpload} disabled={loading} className="absolute left-0 top-0 opacity-0 cursor-pointer h-full w-full" />
+            </div>
           </div>
         </div>
 
-        {error && <div className="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded">{error}</div>}
+        {error && <div className="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded-xl shadow-lg">{error}</div>}
 
         {loading ? (
           <CyberLoader />
         ) : logs.length > 0 ? (
-          <div className="space-y-8">
-            {/* 1. Interactive Chart (Synchronized with Filters) */}
+          <div className="space-y-8 animate-in fade-in duration-500">
+            {/* 1. Interactive Chart */}
             <ThreatChart logs={filteredLogs} />
 
-            {/* 2. Global Filters & Batch Information */}
+            {/* 2. Global Filters */}
             <StatsFilters
               batchId={batchId}
               activeFilter={activeFilter}
@@ -129,17 +263,17 @@ export default function SOCDashboard() {
                   <button
                     disabled={currentPage === 1}
                     onClick={() => setCurrentPage(p => p - 1)}
-                    className="p-2 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-30 transition-colors"
+                    className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-30 transition-colors"
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
-                  <div className="px-4 py-2 text-sm font-bold text-white bg-slate-900 rounded border border-slate-700 min-w-[120px] text-center">
+                  <div className="px-4 py-2 text-sm font-bold text-white bg-slate-900 rounded-lg border border-slate-700 min-w-[120px] text-center">
                     Page {currentPage} of {totalPages}
                   </div>
                   <button
                     disabled={currentPage === totalPages}
                     onClick={() => setCurrentPage(p => p + 1)}
-                    className="p-2 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-30 transition-colors"
+                    className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-30 transition-colors"
                   >
                     <ChevronRight className="w-5 h-5" />
                   </button>
@@ -149,9 +283,10 @@ export default function SOCDashboard() {
           </div>
         ) : (
           /* Empty State */
-          <div className="text-center py-20 bg-slate-800/50 rounded-xl border-2 border-dashed border-slate-700 shadow-inner">
-            <UploadCloud className="mx-auto w-12 h-12 text-slate-600 mb-4" />
-            <p className="text-slate-500">Awaiting Log Ingestion. Upload a file to trigger AI analysis.</p>
+          <div className="text-center py-32 bg-slate-800/30 rounded-2xl border-2 border-dashed border-slate-700 shadow-inner">
+            <UploadCloud className="mx-auto w-16 h-16 text-slate-600 mb-6" />
+            <h3 className="text-xl font-bold text-white mb-2">No Active Batch</h3>
+            <p className="text-slate-500 max-w-md mx-auto">Upload a new access log to trigger the AI analysis engine, or open your History to load a previously processed file.</p>
           </div>
         )}
       </div>

@@ -11,10 +11,12 @@ client = Groq(api_key=GROQ_API_KEY)
 
 def load_stix_ips():
     try:
+        # Assuming the script is run from the backend directory
         with open("../data/stix_intel_feed.json", "r") as f:
             stix_data = json.load(f)
             return [obj["pattern"].split("'")[1] for obj in stix_data.get("objects", []) if "pattern" in obj]
-    except:
+    except Exception as e:
+        print(f"--- [DEBUG] Could not load STIX IPs: {e} ---")
         return []
 
 KNOWN_BAD_IPS = load_stix_ips()
@@ -30,12 +32,14 @@ def run_detection_pipeline(parsed_logs):
     df['category'] = "Normal" # DETERMINISTIC CATEGORY
     df['signature'] = "" # Temporary column for tracking
 
-    # LAYER 1: Rules
+    # ==========================================
+    # LAYER 1: Deterministic Rules
+    # ==========================================
     stix_mask = df['source_ip'].isin(KNOWN_BAD_IPS)
     df.loc[stix_mask, ['is_anomaly', 'category', 'confidence_score', 'anomaly_reason']] = [True, "Threat Intel", 100.0, "STIX Intel Match: Known Malicious IP."]
 
     df['minute'] = df['timestamp'].dt.floor('min')
-    brute_ips = df.groupby(['source_ip', 'minute']).size().reset_index(name='count').query('count > 15')['source_ip'].unique()
+    brute_ips = df.groupby(['source_ip', 'minute']).size().reset_index(name='count').query('count > 50')['source_ip'].unique()
     bf_mask = df['source_ip'].isin(brute_ips) & ~df['is_anomaly']
     df.loc[bf_mask, ['is_anomaly', 'category', 'confidence_score', 'anomaly_reason']] = [True, "Brute Force", 99.0, "Velocity Rule: Possible Brute Force Attack."]
 
@@ -43,7 +47,9 @@ def run_detection_pipeline(parsed_logs):
     sensitive_mask = df['endpoint'].apply(lambda x: any(sub in str(x) for sub in sensitive_endpoints)) & (df['status_code'] >= 400) & ~df['is_anomaly']
     df.loc[sensitive_mask, ['is_anomaly', 'category', 'confidence_score', 'anomaly_reason']] = [True, "Probing", 95.0, "Rule: Unauthorized access attempt to sensitive endpoint."]
 
-    # LAYER 2: ML
+    # ==========================================
+    # LAYER 2: ML Behavioral Analysis
+    # ==========================================
     normal_mask = ~df['is_anomaly']
     if normal_mask.sum() > 0:
         clf = IsolationForest(contamination=0.05, random_state=42)
@@ -62,11 +68,12 @@ def run_detection_pipeline(parsed_logs):
     # ==========================================
     # LAYER 3: Signature Aggregation AI Enrichment
     # ==========================================
+    print("\n--- [DEBUG] DETECTION: Starting Layer 3 (AI Enrichment) ---")
     anomalies_df = df[df['is_anomaly']].copy()
     
     if not anomalies_df.empty:
-        # 1. Create a unique signature for each attack vector locally
-        df.loc[df['is_anomaly'], 'signature'] = anomalies_df['category'] + "|" + anomalies_df['source_ip'] + "|" + anomalies_df['http_method'] + "|" + anomalies_df['endpoint']
+        # 1. OPTIMIZED SIGNATURE: Removed source_ip to massively compress botnet/distributed attacks
+        df.loc[df['is_anomaly'], 'signature'] = anomalies_df['category'] + "|" + anomalies_df['http_method'] + "|" + anomalies_df['endpoint']
         
         # Refresh the working copy with the new signature column
         anomalies_df = df[df['is_anomaly']]
@@ -75,7 +82,9 @@ def run_detection_pipeline(parsed_logs):
         unique_cases = []
         sig_mapping = {}
         
-        # 2. Extract strictly the unique signatures and omit PII
+        print(f"--- [DEBUG] DETECTION: Compressed {len(anomalies_df)} anomalies into {len(grouped)} unique behavioral signatures ---")
+        
+        # 2. Extract strictly the unique signatures
         for idx, (sig, group) in enumerate(grouped):
             count = len(group)
             sample_row = group.iloc[0]
@@ -90,13 +99,18 @@ def run_detection_pipeline(parsed_logs):
             })
             sig_mapping[str(idx)] = sig
 
-        # 3. Process unique cases in chunks (just in case there are > 15 UNIQUE attacks)
+        # 3. Process unique cases in chunks
         chunk_size = 15
         all_explanations = {}
+        total_chunks = (len(unique_cases) + chunk_size - 1) // chunk_size
+        
+        print(f"--- [DEBUG] DETECTION: Sending {total_chunks} chunk(s) to Groq API ---")
 
         for i in range(0, len(unique_cases), chunk_size):
-            chunk = unique_cases[i:i + chunk_size]
+            chunk_num = (i // chunk_size) + 1
+            print(f"--- [DEBUG] DETECTION: Processing chunk {chunk_num}/{total_chunks} ---")
             
+            chunk = unique_cases[i:i + chunk_size]
             prompt = (
                 "You are a Senior SOC Analyst. Analyze this batch of unique security threat signatures. "
                 "For each ID, provide a 1-sentence tactical explanation of the risk, considering the volume of attempts. "
@@ -115,7 +129,7 @@ def run_detection_pipeline(parsed_logs):
                 all_explanations.update(chunk_explanations)
                 
             except Exception as e:
-                print(f"AI Enrichment Error on chunk {i}: {e}")
+                print(f"--- [DEBUG] DETECTION: AI Enrichment Error on chunk {chunk_num}: {e} ---")
                 for item in chunk:
                     all_explanations[item['id']] = item['rule_reason'] + " (AI enrichment bypass)"
 
@@ -125,6 +139,8 @@ def run_detection_pipeline(parsed_logs):
                 sig = sig_mapping[idx_str]
                 match_mask = df['signature'] == sig
                 df.loc[match_mask, 'anomaly_reason'] = f"🤖 AI Analyst: {explanation}"
+
+    print("--- [DEBUG] DETECTION: Complete! ---")
 
     # Clean up temporary columns before returning to main.py
     columns_to_drop = ['minute', 'signature']

@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Float
+from sqlalchemy.sql import func
 from database import Base
 
 class User(Base):
@@ -22,3 +23,13 @@ class LogEntry(Base):
     anomaly_reason = Column(String, nullable=True) 
     confidence_score = Column(Float, nullable=True)
     category = Column(String, default="Normal")
+
+class BatchHistory(Base):
+    __tablename__ = "batch_history"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(String, unique=True, index=True)
+    username = Column(String, index=True)
+    filename = Column(String)
+    anomalies_count = Column(Integer)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
