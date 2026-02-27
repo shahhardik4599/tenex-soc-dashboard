@@ -1,0 +1,6 @@
+# .dockerignore
+**/node_modules
+**/venv
+**/.next
+**/.git
+backend/tenex.db

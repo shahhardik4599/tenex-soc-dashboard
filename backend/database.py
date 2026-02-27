@@ -1,8 +1,12 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# Connects to the Docker PostgreSQL container we made in Phase 1
-SQLALCHEMY_DATABASE_URL = "postgresql://tenex_user:tenex_password@localhost:5432/tenex_soc_db"
+# If DATABASE_URL is set (like in Docker), use it. Otherwise, use localhost for local dev.
+SQLALCHEMY_DATABASE_URL = os.getenv(
+    "DATABASE_URL", 
+    "postgresql://tenex_user:tenex_password@localhost:5432/tenex_soc_db"
+)
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
