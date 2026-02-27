@@ -10,6 +10,7 @@ import AuthContainer from '@/components/AuthContainer';
 import StatsFilters from '@/components/StatsFilters';
 import LogTable from '@/components/LogTable';
 import CyberLoader from '@/components/Loader';
+import ThreatChart from '@/components/ThreatChart';
 
 export default function SOCDashboard() {
   // --- State Management ---
@@ -121,7 +122,7 @@ export default function SOCDashboard() {
         ) : logs.length > 0 ? (
           <>
             {/* Timeline Chart - Re-integrated */}
-            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
+            {/* <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
               <h2 className="text-lg font-semibold text-white mb-4">Event Timeline (Velocity & Anomalies)</h2>
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -135,7 +136,25 @@ export default function SOCDashboard() {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+            </div> */}
+              {logs.length > 0 && (
+                <>
+                  {/* PASS FILTERED LOGS HERE INSTEAD OF ALL LOGS */}
+                  <ThreatChart logs={filteredLogs} />
+
+                  <StatsFilters
+                    batchId={batchId}
+                    activeFilter={activeFilter}
+                    setFilter={(f) => { setFilter(f); setCurrentPage(1); }}
+                    totalLogs={logs.length}
+                  />
+
+                  <div className="space-y-4">
+                    <LogTable logs={paginatedLogs} />
+                    {/* ... pagination controls ... */}
+                  </div>
+                </>
+              )}
 
             <StatsFilters
               batchId={batchId}
