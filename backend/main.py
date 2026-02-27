@@ -3,22 +3,21 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import secrets
+import uuid
 
 import database
 import models
 import parser
 import detection
-import uuid
 
 # Create the DB tables
 models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI(title="TENEX SOC Analyst API")
 
-# --- CORS BLOCK ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], # Allows the Next.js frontend
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -26,24 +25,35 @@ app.add_middleware(
 
 security = HTTPBasic()
 
-# --- Basic Authentication ---
-def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
-    correct_username = secrets.compare_digest(credentials.username, "admin")
-    correct_password = secrets.compare_digest(credentials.password, "tenex2026")
-    if not (correct_username and correct_password):
+# --- Authentication Logic ---
+def verify_credentials(credentials: HTTPBasicCredentials = Depends(security), db: Session = Depends(database.get_db)):
+    # Check database for user
+    user = db.query(models.User).filter(models.User.username == credentials.username).first()
+    
+    if not user or not secrets.compare_digest(user.password, credentials.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Basic"},
         )
-    return credentials.username
+    return user.username
 
 # --- Endpoints ---
-@app.get("/")
-def health_check():
-    return {"status": "ok", "message": "TENEX Backend is running"}
 
-import uuid # NEW: Make sure to import uuid at the top of main.py, or just leave it here!
+@app.get("/")
+def health_check(username: str = Depends(verify_credentials)):
+    return {"status": "ok", "message": f"Welcome {username}, TENEX Backend is running"}
+
+@app.post("/signup")
+def signup(user_in: dict, db: Session = Depends(database.get_db)):
+    existing_user = db.query(models.User).filter(models.User.username == user_in.get('username')).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    new_user = models.User(username=user_in['username'], password=user_in['password'])
+    db.add(new_user)
+    db.commit()
+    return {"message": "User created successfully"}
 
 @app.post("/upload")
 async def upload_log_file(
@@ -54,25 +64,18 @@ async def upload_log_file(
     if not file.filename.endswith(('.log', '.txt')):
         raise HTTPException(status_code=400, detail="Only .log or .txt files allowed")
 
-    # Read and parse the file
     content = await file.read()
     decoded_content = content.decode("utf-8", errors="replace")
     
     parsed_data = parser.parse_nginx_log_lines(decoded_content)
-    
     if not parsed_data:
         raise HTTPException(status_code=400, detail="Could not parse any valid Nginx logs.")
 
-    # Run the Triangulation AI Detection Pipeline
     parsed_data = detection.run_detection_pipeline(parsed_data)
-
-    # NEW: Generate a unique ID for this specific file upload
     current_batch_id = str(uuid.uuid4())
 
-    # Save to Database
     db_logs = []
     for log in parsed_data:
-        # NEW: Pass the batch_id into the database row
         db_log = models.LogEntry(**log, batch_id=current_batch_id)
         db_logs.append(db_log)
         
@@ -81,7 +84,7 @@ async def upload_log_file(
 
     return {
         "message": "File uploaded and parsed successfully",
-        "batch_id": current_batch_id, # NEW: Return it to the frontend
+        "batch_id": current_batch_id,
         "lines_processed": len(db_logs),
         "data": parsed_data
     }
