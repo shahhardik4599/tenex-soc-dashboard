@@ -24,6 +24,7 @@ export default function SOCDashboard() {
   // --- History State Management ---
   const [historyBatches, setHistoryBatches] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [isHistoryView, setIsHistoryView] = useState(false); // Tracks if viewing historical data
 
   // --- Pagination State ---
   const [currentPage, setCurrentPage] = useState(1);
@@ -84,6 +85,10 @@ export default function SOCDashboard() {
 
       setBatchId(response.data.batch_info.batch_id);
       setLogs(response.data.data);
+
+      // Update view state for history
+      setIsHistoryView(true);
+      setFilter('anomalies'); // Default to anomalies since safe traffic isn't saved
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load historical batch.');
     } finally {
@@ -109,6 +114,10 @@ export default function SOCDashboard() {
 
       setBatchId(response.data.batch_id);
       setLogs(response.data.data);
+
+      // Update view state for fresh upload
+      setIsHistoryView(false);
+      setFilter('all'); // Default to all traffic for a new upload
 
       // Refresh the history list so the new upload appears in the sidebar!
       fetchHistory(credentials);
@@ -248,6 +257,7 @@ export default function SOCDashboard() {
               activeFilter={activeFilter}
               setFilter={(f) => { setFilter(f); setCurrentPage(1); }}
               totalLogs={logs.length}
+              isHistoryView={isHistoryView}
             />
 
             {/* 3. Paginated Data Table */}

@@ -5,10 +5,12 @@ interface StatsFiltersProps {
     activeFilter: string;
     setFilter: (filter: string) => void;
     totalLogs: number;
+    isHistoryView?: boolean; // NEW PROP
 }
 
-export default function StatsFilters({ batchId, activeFilter, setFilter, totalLogs }: StatsFiltersProps) {
-    // --- UPDATED: Added Threat Intel to the array ---
+export default function StatsFilters({ batchId, activeFilter, setFilter, totalLogs, isHistoryView = false }: StatsFiltersProps) {
+
+    // NEW LOGIC: Filter out 'all' if we are in History View
     const filterOptions = [
         { id: 'all', label: 'All Traffic' },
         { id: 'anomalies', label: 'Anomalies' },
@@ -16,13 +18,13 @@ export default function StatsFilters({ batchId, activeFilter, setFilter, totalLo
         { id: 'brute_force', label: 'Brute Force' },
         { id: 'sensitive', label: 'Sensitive Probing' },
         { id: 'ml', label: 'ML Behavioral' },
-    ];
+    ].filter(opt => !(isHistoryView && opt.id === 'all'));
 
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
                 <div className="flex items-center space-x-2">
-                    <span className="text-slate-400 text-sm">Active Batch:</span>
+                    <span className="text-slate-400 text-sm">{isHistoryView ? 'Historical Batch:' : 'Active Batch:'}</span>
                     <span className="bg-emerald-900/30 text-emerald-400 px-3 py-1 rounded text-xs font-mono border border-emerald-500/30">
                         {batchId || 'No active session'}
                     </span>
