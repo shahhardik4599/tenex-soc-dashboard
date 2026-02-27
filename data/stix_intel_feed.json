@@ -11,6 +11,16 @@
             "pattern": "[ipv4-addr:value = '198.51.100.42']",
             "pattern_type": "stix",
             "valid_from": "2024-01-01T00:00:00Z"
+        },
+        {
+            "type": "indicator",
+            "spec_version": "2.1",
+            "id": "indicator--9f3a4c1d-28e5-4aef-b12d-10ff48c3ae5d",
+            "name": "Known Malicious IP - VulnScanner",
+            "description": "This IP is associated with aggressive automated vulnerability scanning.",
+            "pattern": "[ipv4-addr:value = '203.0.113.88']",
+            "pattern_type": "stix",
+            "valid_from": "2024-02-15T00:00:00Z"
         }
     ]
 }

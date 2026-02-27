@@ -11,10 +11,12 @@ client = Groq(api_key=GROQ_API_KEY)
 
 def load_stix_ips():
     try:
-        # Assuming the script is run from the backend directory
-        with open("../data/stix_intel_feed.json", "r") as f:
+        # In Docker, os.getcwd() is '/app'. Our volume maps to '/app/data'
+        stix_path = os.path.join(os.getcwd(), "data", "stix_intel_feed.json")
+        with open(stix_path, "r") as f:
             stix_data = json.load(f)
-            return [obj["pattern"].split("'")[1] for obj in stix_data.get("objects", []) if "pattern" in obj]
+            
+        return [obj["pattern"].split("'")[1] for obj in stix_data.get("objects", []) if "pattern" in obj]
     except Exception as e:
         print(f"--- [DEBUG] Could not load STIX IPs: {e} ---")
         return []
@@ -35,14 +37,29 @@ def run_detection_pipeline(parsed_logs):
     # ==========================================
     # LAYER 1: Deterministic Rules
     # ==========================================
+    
+    # 1. Threat Intel Check
     stix_mask = df['source_ip'].isin(KNOWN_BAD_IPS)
     df.loc[stix_mask, ['is_anomaly', 'category', 'confidence_score', 'anomaly_reason']] = [True, "Threat Intel", 100.0, "STIX Intel Match: Known Malicious IP."]
 
-    df['minute'] = df['timestamp'].dt.floor('min')
-    brute_ips = df.groupby(['source_ip', 'minute']).size().reset_index(name='count').query('count > 50')['source_ip'].unique()
+    # 2. Brute Force Check (Sliding Window Algorithm)
+    # Sort chronologically, index by timestamp, and sum requests over a rolling 60-second window
+    df = df.sort_values('timestamp')
+    rolling_counts = (
+        df.assign(req_count=1)
+        .set_index('timestamp')
+        .groupby('source_ip')['req_count']
+        .rolling('60s')
+        .sum()
+        .reset_index()
+    )
+    
+    # Find IPs that crossed the 50 request threshold inside any 60-second window
+    brute_ips = rolling_counts[rolling_counts['req_count'] >= 50]['source_ip'].unique()
     bf_mask = df['source_ip'].isin(brute_ips) & ~df['is_anomaly']
-    df.loc[bf_mask, ['is_anomaly', 'category', 'confidence_score', 'anomaly_reason']] = [True, "Brute Force", 99.0, "Velocity Rule: Possible Brute Force Attack."]
+    df.loc[bf_mask, ['is_anomaly', 'category', 'confidence_score', 'anomaly_reason']] = [True, "Brute Force", 99.0, "Velocity Rule: Possible Brute Force Attack (50+ reqs in 60s)."]
 
+    # 3. Sensitive Probing Check
     sensitive_endpoints = ['/admin', '/.env', '/config', '/.git']
     sensitive_mask = df['endpoint'].apply(lambda x: any(sub in str(x) for sub in sensitive_endpoints)) & (df['status_code'] >= 400) & ~df['is_anomaly']
     df.loc[sensitive_mask, ['is_anomaly', 'category', 'confidence_score', 'anomaly_reason']] = [True, "Probing", 95.0, "Rule: Unauthorized access attempt to sensitive endpoint."]
@@ -143,7 +160,7 @@ def run_detection_pipeline(parsed_logs):
     print("--- [DEBUG] DETECTION: Complete! ---")
 
     # Clean up temporary columns before returning to main.py
-    columns_to_drop = ['minute', 'signature']
+    columns_to_drop = ['signature']
     for col in columns_to_drop:
         if col in df.columns:
             df = df.drop(columns=[col])
