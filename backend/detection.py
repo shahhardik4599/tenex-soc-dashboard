@@ -129,8 +129,10 @@ def run_detection_pipeline(parsed_logs):
             
             chunk = unique_cases[i:i + chunk_size]
             prompt = (
-                "You are a Senior SOC Analyst. Analyze this batch of unique security threat signatures. "
-                "For each ID, provide a 1-sentence tactical explanation of the risk, considering the volume of attempts. "
+                "You are an elite SOC Analyst. Review this batch of aggregated security anomalies. "
+                "For each ID, provide a 3-part tactical assessment formatted exactly like this: "
+                "'Severity: [Critical/High/Medium/Low]. Risk: [What the attacker is trying to achieve]. Action: [Specific next step for the SOC]'. "
+                "Do NOT just restate the endpoints or numbers. Provide actual cybersecurity insight. "
                 "Return the result strictly as a JSON object where keys are the IDs and values are the explanations. "
                 f"Data: {json.dumps(chunk)}"
             )
