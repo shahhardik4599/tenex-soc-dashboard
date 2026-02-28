@@ -56,6 +56,17 @@ The easiest way to run the entire stack (Database, Backend, and Frontend) is usi
 
 ---
 
+## 🧪 Usage & Testing
+
+Once the Docker containers are running, follow these steps to see the detection engine in action:
+
+1. **Create an Account:** Navigate to [http://localhost:3000](http://localhost:3000), click on **Sign Up**, and create a new local account to manage your SOC sessions.
+2. **Upload Sample Data:** Locate the included test file at `data/sample_access.log` (or download it directly from the repository).
+3. **Run the Detection Pipeline:** Click the **Upload Access Log** button on the dashboard and select the `sample_access.log` file.
+4. **View the Results:** Watch the Live Threat Timeline populate instantly, identifying Threat Intel hits, Brute Force attacks, and ML anomalies, all enriched with GenAI explanations.
+
+---
+
 ## 🛠️ Tech Stack
 
 | Layer | Technology |
@@ -98,7 +109,7 @@ TENEX-SOC-DASHBOARD/
 │   ├── package.json        # Node dependencies
 │   └── Dockerfile          # Container configuration for Frontend
 ├── data/                   # Data storage
-│   ├── access.log          # Sample log data
+│   ├── sample_access.log   # Sample log data for testing
 │   └── stix_intel_feed.json # Threat intelligence feed
 ├── docker-compose.yml      # Orchestration for DB, Backend, and Frontend
 └── README.md               # Documentation
