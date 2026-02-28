@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { UploadCloud, ShieldCheck, ChevronLeft, ChevronRight, History, X, LogOut } from 'lucide-react';
 
@@ -20,6 +20,9 @@ export default function SOCDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [activeFilter, setFilter] = useState('all');
+
+  // --- Reference for File Upload ---
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- History State Management ---
   const [historyBatches, setHistoryBatches] = useState<any[]>([]);
@@ -126,6 +129,10 @@ export default function SOCDashboard() {
       if (err.response?.status === 401) handleLogout(); // Force logout on auth failure
     } finally {
       setLoading(false);
+      // Reset the input value so the same file can be uploaded again if needed
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -212,33 +219,45 @@ export default function SOCDashboard() {
           </div>
 
           <div className="flex items-center space-x-4">
-            {/* History Toggle Button */}
+            {/* 1st Button: History Toggle */}
             <button
               onClick={() => setShowHistory(true)}
-              className="flex items-center px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-white transition-colors"
+              className="flex items-center cursor-pointer px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-white transition-colors"
             >
               <History className="w-4 h-4 mr-2" />
               History
             </button>
 
-            {/* Logout Button */}
+            {/* 2nd Button: Upload Button */}
+            <div>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading}
+                className={`bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-6 rounded-lg shadow-lg flex items-center transition-all ${loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              >
+                <UploadCloud className="w-5 h-5 mr-2" />
+                {loading ? 'AI Engine Processing...' : 'Upload Access Log'}
+              </button>
+              {/* The hidden shared file input */}
+              <input
+                type="file"
+                accept=".log,.txt"
+                onChange={handleFileUpload}
+                disabled={loading}
+                ref={fileInputRef}
+                className="hidden"
+              />
+            </div>
+
+            {/* 3rd Button: Logout (Moved to the end) */}
             <button
               onClick={handleLogout}
-              className="flex items-center px-4 py-2 bg-red-900/30 hover:bg-red-900/50 border border-red-800 rounded-lg text-red-400 transition-colors"
+              className="flex items-center cursor-pointer px-4 py-2 bg-red-900/30 hover:bg-red-900/50 border border-red-800 rounded-lg text-red-400 transition-colors"
               title="Sign Out"
             >
               <LogOut className="w-4 h-4 mr-2" />
               Logout
             </button>
-
-            {/* Upload Button */}
-            <div className="relative overflow-hidden inline-block">
-              <button className={`bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-6 rounded-lg shadow-lg flex items-center transition-all ${loading ? 'opacity-50' : ''}`}>
-                <UploadCloud className="w-5 h-5 mr-2" />
-                {loading ? 'AI Engine Processing...' : 'Upload Access Log'}
-              </button>
-              <input type="file" accept=".log,.txt" onChange={handleFileUpload} disabled={loading} className="absolute left-0 top-0 opacity-0 cursor-pointer h-full w-full" />
-            </div>
           </div>
         </div>
 
@@ -292,11 +311,14 @@ export default function SOCDashboard() {
             </div>
           </div>
         ) : (
-          /* Empty State */
-          <div className="text-center py-32 bg-slate-800/30 rounded-2xl border-2 border-dashed border-slate-700 shadow-inner">
-            <UploadCloud className="mx-auto w-16 h-16 text-slate-600 mb-6" />
-            <h3 className="text-xl font-bold text-white mb-2">No Active Batch</h3>
-            <p className="text-slate-500 max-w-md mx-auto">Upload a new access log to trigger the AI analysis engine, or open your History to load a previously processed file.</p>
+          /* Empty State - Now Clickable! */
+          <div
+            onClick={() => !loading && fileInputRef.current?.click()}
+            className="text-center py-32 bg-slate-800/30 rounded-2xl border-2 border-dashed border-slate-700 shadow-inner cursor-pointer hover:bg-slate-800/50 hover:border-emerald-500 transition-all group"
+          >
+            <UploadCloud className="mx-auto w-16 h-16 text-slate-600 mb-6 group-hover:text-emerald-500 transition-colors" />
+            <h3 className="text-xl font-bold text-white mb-2 group-hover:text-emerald-400 transition-colors">No Active Batch</h3>
+            <p className="text-slate-500 max-w-md mx-auto">Click here to upload a new access log to trigger the AI analysis engine, or open your History to load a previously processed file.</p>
           </div>
         )}
       </div>
