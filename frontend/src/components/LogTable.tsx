@@ -2,6 +2,32 @@ import React from 'react';
 import { AlertTriangle } from 'lucide-react';
 
 export default function LogTable({ logs }: { logs: any[] }) {
+
+    // --- NEW HELPER FUNCTION ---
+    const formatAIReason = (text: string) => {
+        if (!text) return text;
+
+        let cleanText = text;
+
+        // 1. If the AI returned a stringified dictionary (e.g., {'Severity': 'High', ...})
+        // This strips the brackets/quotes and forces line breaks
+        if (cleanText.includes("{'Severity'") || cleanText.includes('{"Severity"')) {
+            cleanText = cleanText
+                .replace(/\{['"]Severity['"]:\s*['"]?/i, 'Severity: ')
+                .replace(/['"]?,\s*['"]Risk['"]:\s*['"]?/i, '\nRisk: ')
+                .replace(/['"]?,\s*['"]Action['"]:\s*['"]?/i, '\nAction: ')
+                .replace(/['"]?\}$/g, ''); // Removes the trailing quote and bracket
+        }
+        // 2. Fallback: If it returned standard period-separated sentences
+        else {
+            cleanText = cleanText
+                .replace(/\.\s*Risk:/g, '.\nRisk:')
+                .replace(/\.\s*Action:/g, '.\nAction:');
+        }
+
+        return cleanText;
+    };
+
     return (
         <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden">
             <table className="w-full text-left text-sm">
@@ -34,7 +60,10 @@ export default function LogTable({ logs }: { logs: any[] }) {
                                             </span>
                                             <span className="text-red-400 font-bold text-xs">{log.confidence_score}%</span>
                                         </div>
-                                        <div className="text-slate-300 text-xs italic">{log.anomaly_reason}</div>
+                                        {/* --- UPDATED: Added whitespace-pre-line and the helper function --- */}
+                                        <div className="text-slate-300 text-xs italic whitespace-pre-line mt-1">
+                                            {formatAIReason(log.anomaly_reason)}
+                                        </div>
                                     </div>
                                 ) : <span className="text-slate-600">Verified Traffic</span>}
                             </td>

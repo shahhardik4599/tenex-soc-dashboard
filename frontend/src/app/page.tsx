@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { UploadCloud, ShieldCheck, ChevronLeft, ChevronRight, History, X, LogOut } from 'lucide-react';
+import { UploadCloud, ShieldCheck, ChevronLeft, ChevronRight, History, X, LogOut, Filter } from 'lucide-react';
 
 // Component Imports
 import AuthContainer from '@/components/AuthContainer';
@@ -19,7 +19,11 @@ export default function SOCDashboard() {
   const [batchId, setBatchId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // --- Filter State Management ---
   const [activeFilter, setFilter] = useState('all');
+  const [confidenceRange, setConfidenceRange] = useState('All');
+  const [severityFilter, setSeverityFilter] = useState('All');
 
   // --- Reference for File Upload ---
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -27,7 +31,7 @@ export default function SOCDashboard() {
   // --- History State Management ---
   const [historyBatches, setHistoryBatches] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [isHistoryView, setIsHistoryView] = useState(false); // Tracks if viewing historical data
+  const [isHistoryView, setIsHistoryView] = useState(false);
 
   // --- Pagination State ---
   const [currentPage, setCurrentPage] = useState(1);
@@ -35,7 +39,6 @@ export default function SOCDashboard() {
 
   // --- API Handlers & Lifecycle ---
   useEffect(() => {
-    // Check session storage for saved credentials when the page loads
     const saved = sessionStorage.getItem('tenex_credentials');
     if (saved) {
       const parsedCreds = JSON.parse(saved);
@@ -60,7 +63,6 @@ export default function SOCDashboard() {
   const handleLoginSuccess = (creds: any) => {
     setCredentials(creds);
     setIsLoggedIn(true);
-    // Save to session storage: survives refresh, dies when tab closes
     sessionStorage.setItem('tenex_credentials', JSON.stringify(creds));
     fetchHistory(creds);
   };
@@ -77,8 +79,8 @@ export default function SOCDashboard() {
   const loadHistoricalBatch = async (selectedBatchId: string) => {
     setLoading(true);
     setError('');
-    setShowHistory(false); // Close the sidebar
-    setCurrentPage(1);     // Reset pagination
+    setShowHistory(false);
+    setCurrentPage(1);
 
     try {
       const authHeader = 'Basic ' + btoa(`${credentials.username}:${credentials.password}`);
@@ -89,9 +91,10 @@ export default function SOCDashboard() {
       setBatchId(response.data.batch_info.batch_id);
       setLogs(response.data.data);
 
-      // Update view state for history
       setIsHistoryView(true);
-      setFilter('anomalies'); // Default to anomalies since safe traffic isn't saved
+      setFilter('anomalies');
+      setConfidenceRange('All'); // Reset advanced filters on load
+      setSeverityFilter('All');
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load historical batch.');
     } finally {
@@ -118,18 +121,17 @@ export default function SOCDashboard() {
       setBatchId(response.data.batch_id);
       setLogs(response.data.data);
 
-      // Update view state for fresh upload
       setIsHistoryView(false);
-      setFilter('all'); // Default to all traffic for a new upload
+      setFilter('all');
+      setConfidenceRange('All'); // Reset advanced filters on fresh upload
+      setSeverityFilter('All');
 
-      // Refresh the history list so the new upload appears in the sidebar!
       fetchHistory(credentials);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to process logs.');
-      if (err.response?.status === 401) handleLogout(); // Force logout on auth failure
+      if (err.response?.status === 401) handleLogout();
     } finally {
       setLoading(false);
-      // Reset the input value so the same file can be uploaded again if needed
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -139,15 +141,40 @@ export default function SOCDashboard() {
   // --- Filtering & Pagination Logic ---
   const filteredLogs = useMemo(() => {
     return logs.filter(log => {
-      if (activeFilter === 'all') return true;
-      if (activeFilter === 'anomalies') return log.is_anomaly;
-      if (activeFilter === 'threat_intel') return log.category === 'Threat Intel';
-      if (activeFilter === 'brute_force') return log.category === 'Brute Force';
-      if (activeFilter === 'sensitive') return log.category === 'Probing';
-      if (activeFilter === 'ml') return log.category === 'ML Behavioral';
-      return true;
+      // 1. Check Category Filter
+      let categoryMatch = false;
+      if (activeFilter === 'all') categoryMatch = true;
+      else if (activeFilter === 'anomalies') categoryMatch = log.is_anomaly;
+      else if (activeFilter === 'threat_intel') categoryMatch = log.category === 'Threat Intel';
+      else if (activeFilter === 'brute_force') categoryMatch = log.category === 'Brute Force';
+      else if (activeFilter === 'sensitive') categoryMatch = log.category === 'Probing';
+      else if (activeFilter === 'ml') categoryMatch = log.category === 'ML Behavioral';
+
+      // 2. Check Confidence Score Filter (Range Logic)
+      let confidenceMatch = true;
+      const score = log.confidence_score || 0;
+
+      if (confidenceRange !== 'All') {
+        if (confidenceRange === '0-50') confidenceMatch = score >= 0 && score < 50;
+        else if (confidenceRange === '50-75') confidenceMatch = score >= 50 && score < 75;
+        else if (confidenceRange === '75-90') confidenceMatch = score >= 75 && score < 90;
+        else if (confidenceRange === '90-100') confidenceMatch = score >= 90 && score <= 100;
+      }
+
+      // 3. Check Severity Filter
+      let severityMatch = true;
+      if (severityFilter !== 'All') {
+        const reason = String(log.anomaly_reason || "");
+        // Matches format: 'Severity': 'High' OR "Severity": "High" OR Severity: High
+        severityMatch = reason.includes(`'Severity': '${severityFilter}'`) ||
+          reason.includes(`"Severity": "${severityFilter}"`) ||
+          reason.includes(`Severity: ${severityFilter}`);
+      }
+
+      // The log must pass ALL active filters to be shown in the table
+      return categoryMatch && confidenceMatch && severityMatch;
     });
-  }, [logs, activeFilter]);
+  }, [logs, activeFilter, confidenceRange, severityFilter]);
 
   const totalPages = Math.ceil(filteredLogs.length / rowsPerPage) || 1;
   const paginatedLogs = filteredLogs.slice(
@@ -219,7 +246,6 @@ export default function SOCDashboard() {
           </div>
 
           <div className="flex items-center space-x-4">
-            {/* 1st Button: History Toggle */}
             <button
               onClick={() => setShowHistory(true)}
               className="flex items-center cursor-pointer px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-white transition-colors"
@@ -228,7 +254,6 @@ export default function SOCDashboard() {
               History
             </button>
 
-            {/* 2nd Button: Upload Button */}
             <div>
               <button
                 onClick={() => fileInputRef.current?.click()}
@@ -238,7 +263,6 @@ export default function SOCDashboard() {
                 <UploadCloud className="w-5 h-5 mr-2" />
                 {loading ? 'AI Engine Processing...' : 'Upload Access Log'}
               </button>
-              {/* The hidden shared file input */}
               <input
                 type="file"
                 accept=".log,.txt"
@@ -249,7 +273,6 @@ export default function SOCDashboard() {
               />
             </div>
 
-            {/* 3rd Button: Logout (Moved to the end) */}
             <button
               onClick={handleLogout}
               className="flex items-center cursor-pointer px-4 py-2 bg-red-900/30 hover:bg-red-900/50 border border-red-800 rounded-lg text-red-400 transition-colors"
@@ -271,13 +294,55 @@ export default function SOCDashboard() {
             <ThreatChart logs={filteredLogs} />
 
             {/* 2. Global Filters */}
-            <StatsFilters
-              batchId={batchId}
-              activeFilter={activeFilter}
-              setFilter={(f) => { setFilter(f); setCurrentPage(1); }}
-              totalLogs={logs.length}
-              isHistoryView={isHistoryView}
-            />
+            <div className="space-y-4">
+              <StatsFilters
+                batchId={batchId}
+                activeFilter={activeFilter}
+                setFilter={(f) => { setFilter(f); setCurrentPage(1); }}
+                totalLogs={logs.length}
+                isHistoryView={isHistoryView}
+              />
+
+              {/* --- NEW ADVANCED FILTERS BAR --- */}
+              <div className="flex flex-wrap items-center gap-6 bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-md">
+                <div className="flex items-center text-emerald-500">
+                  <Filter className="w-4 h-4 mr-2" />
+                  <span className="text-sm font-bold uppercase tracking-wider">Advanced Filters</span>
+                </div>
+
+                {/* Confidence Range Filter */}
+                <div className="flex items-center space-x-3">
+                  <label className="text-sm font-medium text-slate-400">Confidence Range:</label>
+                  <select
+                    value={confidenceRange}
+                    onChange={(e) => { setConfidenceRange(e.target.value); setCurrentPage(1); }}
+                    className="bg-slate-900 border border-slate-600 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2 cursor-pointer outline-none"
+                  >
+                    <option value="All">All Scores</option>
+                    <option value="0-50">Low (0% - 49%)</option>
+                    <option value="50-75">Medium (50% - 74%)</option>
+                    <option value="75-90">High (75% - 89%)</option>
+                    <option value="90-100">Critical (90% - 100%)</option>
+                  </select>
+                </div>
+
+                {/* Severity Filter */}
+                <div className="flex items-center space-x-3">
+                  <label className="text-sm font-medium text-slate-400">AI Severity:</label>
+                  <select
+                    value={severityFilter}
+                    onChange={(e) => { setSeverityFilter(e.target.value); setCurrentPage(1); }}
+                    className="bg-slate-900 border border-slate-600 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2 cursor-pointer outline-none"
+                  >
+                    <option value="All">All Severities</option>
+                    <option value="Critical">Critical Only</option>
+                    <option value="High">High Only</option>
+                    <option value="Medium">Medium Only</option>
+                    <option value="Low">Low Only</option>
+                  </select>
+                </div>
+              </div>
+            </div>
 
             {/* 3. Paginated Data Table */}
             <div className="space-y-4">
@@ -286,7 +351,7 @@ export default function SOCDashboard() {
               {/* Pagination Controls */}
               <div className="flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-md">
                 <div className="text-sm text-slate-400">
-                  Showing <span className="text-white font-bold">{(currentPage - 1) * rowsPerPage + 1}</span> to <span className="text-white font-bold">{Math.min(currentPage * rowsPerPage, filteredLogs.length)}</span> of <span className="text-white font-bold">{filteredLogs.length}</span> events
+                  Showing <span className="text-white font-bold">{filteredLogs.length === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1}</span> to <span className="text-white font-bold">{Math.min(currentPage * rowsPerPage, filteredLogs.length)}</span> of <span className="text-white font-bold">{filteredLogs.length}</span> events
                 </div>
                 <div className="flex space-x-2">
                   <button
@@ -300,7 +365,7 @@ export default function SOCDashboard() {
                     Page {currentPage} of {totalPages}
                   </div>
                   <button
-                    disabled={currentPage === totalPages}
+                    disabled={currentPage === totalPages || totalPages === 0}
                     onClick={() => setCurrentPage(p => p + 1)}
                     className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-30 transition-colors"
                   >
@@ -311,7 +376,7 @@ export default function SOCDashboard() {
             </div>
           </div>
         ) : (
-          /* Empty State - Now Clickable! */
+          /* Empty State */
           <div
             onClick={() => !loading && fileInputRef.current?.click()}
             className="text-center py-32 bg-slate-800/30 rounded-2xl border-2 border-dashed border-slate-700 shadow-inner cursor-pointer hover:bg-slate-800/50 hover:border-emerald-500 transition-all group"
